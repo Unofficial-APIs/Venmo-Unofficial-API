@@ -11,13 +11,9 @@ This Python module provides a simple interface to interact with the Venmo API, a
 - Request money from other users
 - User lookup
 
-## Requirements
-
-- Python 3.6+
-- `requests` library
-
 ## Installation
 
-1. Clone this repository or download the `venmo_integration.py` file.
-2. Install the required dependencies:
+This repo is intended to be used as a package in a larger project.
+https://github.com/Unofficial-APIs/Integrations
+
 
