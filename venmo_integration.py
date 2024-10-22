@@ -1,4 +1,5 @@
-import requests
+import aiohttp
+import asyncio
 from typing import Optional, Dict, Any
 from fake_useragent import UserAgent
 
@@ -82,38 +83,51 @@ class VenmoIntegration(Integration):
         self.headers = {
             "User-Agent": user_agent,
             "Content-Type": "application/json",
-            "Authorization": self.authorization_token,
+            "Authorization": f"Bearer {self.authorization_token}",
         }
-        self.identityJson = self.get_identity()
-        self.transactionJson = self.get_personal_transaction()
+        self.identityJson = None
+        self.transactionJson = None
 
-    def _handle_response(self, response: requests.Response) -> Dict[str, Any]:
-        if response.status_code == 200:
-            return response.json()
-        elif response.status_code == 401:
-            raise IntegrationAuthError("Invalid or expired token", response.status_code)
+    async def initialize(self):
+        self.identityJson = await self.get_identity()
+        self.transactionJson = await self.get_personal_transaction()
+
+    async def _handle_response(self, response: aiohttp.ClientResponse) -> Dict[str, Any]:
+        if response.status == 200:
+            return await response.json()
+        elif response.status == 401:
+            raise IntegrationAuthError("Invalid or expired token", response.status)
         else:
-            raise IntegrationAPIError(self.integration_name, f"HTTP error occurred: {response.status_code}")
-
-    def get_balance(self):
+            raise IntegrationAPIError(self.integration_name, f"HTTP error occurred: {response.status}")
+        
+    async def get_identity(self) -> Dict[str, Any]:
+        """
+        Gets the identity of the current account by passing in the headers which include
+        authorization, content-type, and user-agent.
+        """
+        api_url = self.url + "/account"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url=api_url, headers=self.headers) as response:
+                return await self._handle_response(response)
+    async def get_balance(self):
         return self.safe_get(self.identityJson, ["data", "balance"], "get_balance")
 
-    def get_personal_transaction(self) -> Dict[str, Any]:
+    async def get_personal_transaction(self) -> Dict[str, Any]:
         """Gets the list of all personal transactions"""
         api_url = (
             self.url + "/stories/target-or-actor/" + 
             self.safe_get(self.identityJson, ["data", "user", "id"], "get_personal_transaction")
         )
-        response = requests.get(headers=self.headers, url=api_url)
-        return self._handle_response(response)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url=api_url, headers=self.headers) as response:
+                return await self._handle_response(response)
 
-    def get_payment_methods(self, amount) -> Optional[Dict[str, Any]]:
+    async def get_payment_methods(self, amount) -> Optional[Dict[str, Any]]:
         """Gets the user's payment methods and checks if Venmo balance is enough"""
         payload = {"query": get_wallet_query}
-        response = requests.post(
-            headers=self.headers, url="https://api.venmo.com/graphql", json=payload
-        )
-        data = self._handle_response(response)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url="https://api.venmo.com/graphql", headers=self.headers, json=payload) as response:
+                data = await self._handle_response(response)
 
         primary_payment = None
         backup_payment = None
@@ -132,17 +146,19 @@ class VenmoIntegration(Integration):
 
         return None
 
-    def get_user(self, user_id):
+    async def get_user(self, user_id):
         """Gets the account ID of the specified user"""
         api_url = self.url + "/users/" + user_id
-        response = requests.get(headers=self.headers, url=api_url)
-        return self._handle_response(response)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url=api_url, headers=self.headers) as response:
+                return await self._handle_response(response)
 
-    def pay_user(self, user_id, amount, note, privacy="private") -> None:
+    async def pay_user(self, user_id, amount, note, privacy="private") -> None:
         """Pays the user a certain amount of money"""
         api_url = self.url + "/payments"
-        recipient_id = self.safe_get(self.get_user(user_id), ["data", "id"], "pay_user")
-        funding_source_id = self.get_payment_methods(amount)
+        user_data = await self.get_user(user_id)
+        recipient_id = self.safe_get(user_data, ["data", "id"], "pay_user")
+        funding_source_id = await self.get_payment_methods(amount)
 
         if not funding_source_id:
             raise ValueError("No funding sources available")
@@ -155,14 +171,15 @@ class VenmoIntegration(Integration):
             "note": note,
         }
 
-        response = requests.post(headers=self.headers, url=api_url, json=body)
-        self._handle_response(response)
-        print("Paid successfully!")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url=api_url, headers=self.headers, json=body) as response:
+                await self._handle_response(response)
+                print("Paid successfully!")
 
-    def request_user(self, user_id, amount, note, privacy="private") -> None:
+    async def request_user(self, user_id, amount, note, privacy="private") -> None:
         """Requests a certain amount of money from the user"""
         api_url = self.url + "/payments"
-        recipient_id = self.safe_get(self.get_user(user_id), ["data", "id"], "request_user")
+        recipient_id = self.safe_get(await self.get_user(user_id), ["data", "id"], "request_user")
 
         body = {
             "user_id": recipient_id,
@@ -171,12 +188,17 @@ class VenmoIntegration(Integration):
             "note": note,
         }
 
-        response = requests.post(headers=self.headers, url=api_url, json=body)
-        self._handle_response(response)
-        print("Request sent successfully!")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url=api_url, headers=self.headers, json=body) as response:
+                await self._handle_response(response)
+                print("Request sent successfully!")
 
+
+async def main():
+    venmo = VenmoIntegration("Bearer YOUR_ACCESS_TOKEN")
+    await venmo.initialize()
+    print(await venmo.get_balance())
+    await venmo.get_user("Alan-Lu-16")
 
 if __name__ == "__main__":
-    venmo = VenmoIntegration("Bearer YOUR_ACCESS_TOKEN")
-    print(venmo.get_balance())
-    venmo.get_user("Alan-Lu-16")
+    asyncio.run(main())
