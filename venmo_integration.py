@@ -3,8 +3,8 @@ import asyncio
 from typing import Optional, Dict, Any
 from fake_useragent import UserAgent
 
-from utils.errors import IntegrationAuthError, IntegrationAPIError
-from models.integration import Integration
+from submodule_integrations.utils.errors import IntegrationAuthError, IntegrationAPIError
+from submodule_integrations.models.integration import Integration
 
 get_wallet_query = """
 query getUserFundingInstruments {
@@ -95,10 +95,16 @@ class VenmoIntegration(Integration):
     async def _handle_response(self, response: aiohttp.ClientResponse) -> Dict[str, Any]:
         if response.status == 200:
             return await response.json()
-        elif response.status == 401:
-            raise IntegrationAuthError("Invalid or expired token", response.status)
+        
+        response_json = await response.json()
+        error_message = response_json.get("error", {}).get("message", "Unknown error")
+        
+        if response.status == 401:
+            raise IntegrationAuthError(f"Venmo: {error_message}", response.status)
+        elif response.status == 400 and error_message == "Resource not found.":
+            raise IntegrationAPIError(self.integration_name, f"Resource not found.")
         else:
-            raise IntegrationAPIError(self.integration_name, f"HTTP error occurred: {response.status}")
+            raise IntegrationAPIError(self.integration_name, f"{error_message} (HTTP {response.status})")
         
     async def get_identity(self) -> Dict[str, Any]:
         """
@@ -173,9 +179,9 @@ class VenmoIntegration(Integration):
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url=api_url, headers=self.headers, json=body) as response:
-                await self._handle_response(response)
-                print("Paid successfully!")
-
+                response_data = await self._handle_response(response)
+                return response_data
+            
     async def request_user(self, user_id, amount, note, privacy="private") -> None:
         """Requests a certain amount of money from the user"""
         api_url = self.url + "/payments"
@@ -190,8 +196,8 @@ class VenmoIntegration(Integration):
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url=api_url, headers=self.headers, json=body) as response:
-                await self._handle_response(response)
-                print("Request sent successfully!")
+                response_data = await self._handle_response(response)
+                return response_data
 
 
 async def main():
