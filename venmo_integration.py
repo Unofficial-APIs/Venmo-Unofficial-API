@@ -76,7 +76,7 @@ fragment BalanceMetadata on BalanceFundingInstrumentMetadata {
 """
 
 class VenmoIntegration(Integration):
-    def __init__(self, authorization_token, user_agent: str = UserAgent().random):
+    def __init__(self, authorization_token, user_agent: str = UserAgent().random, network_requester=None):
         super().__init__("venmo")
         self.authorization_token = authorization_token
         self.url = "https://api.venmo.com/v1"
@@ -87,6 +87,16 @@ class VenmoIntegration(Integration):
         }
         self.identityJson = None
         self.transactionJson = None
+        self.network_requester = network_requester
+
+    async def _make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Helper method to handle network requests using either custom requester or aiohttp"""
+        if self.network_requester:
+            response = await self.network_requester.request(method, url, process_response=self._handle_response, **kwargs)
+        else:
+            async with aiohttp.ClientSession() as session:
+                async with session.request(method, url, **kwargs) as response:
+                    return await self._handle_response(response)
 
     async def initialize(self):
         self.identityJson = await self.get_identity()
@@ -107,14 +117,10 @@ class VenmoIntegration(Integration):
             raise IntegrationAPIError(self.integration_name, f"{error_message} (HTTP {response.status})")
         
     async def get_identity(self) -> Dict[str, Any]:
-        """
-        Gets the identity of the current account by passing in the headers which include
-        authorization, content-type, and user-agent.
-        """
+        """Gets the identity of the current account"""
         api_url = self.url + "/account"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url=api_url, headers=self.headers) as response:
-                return await self._handle_response(response)
+        return await self._make_request("GET", api_url, headers=self.headers)
+
     async def get_balance(self):
         return self.safe_get(self.identityJson, ["data", "balance"], "get_balance")
 
@@ -124,16 +130,17 @@ class VenmoIntegration(Integration):
             self.url + "/stories/target-or-actor/" + 
             self.safe_get(self.identityJson, ["data", "user", "id"], "get_personal_transaction")
         )
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url=api_url, headers=self.headers) as response:
-                return await self._handle_response(response)
+        return await self._make_request("GET", api_url, headers=self.headers)
 
     async def get_payment_methods(self, amount) -> Optional[Dict[str, Any]]:
         """Gets the user's payment methods and checks if Venmo balance is enough"""
         payload = {"query": get_wallet_query}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url="https://api.venmo.com/graphql", headers=self.headers, json=payload) as response:
-                data = await self._handle_response(response)
+        data = await self._make_request(
+            "POST", 
+            "https://api.venmo.com/graphql", 
+            headers=self.headers, 
+            json=payload
+        )
 
         primary_payment = None
         backup_payment = None
@@ -155,9 +162,7 @@ class VenmoIntegration(Integration):
     async def get_user(self, user_id):
         """Gets the account ID of the specified user"""
         api_url = self.url + "/users/" + user_id
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url=api_url, headers=self.headers) as response:
-                return await self._handle_response(response)
+        return await self._make_request("GET", api_url, headers=self.headers)
 
     async def pay_user(self, user_id, amount, note, privacy="private") -> None:
         """Pays the user a certain amount of money"""
@@ -177,10 +182,12 @@ class VenmoIntegration(Integration):
             "note": note,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url=api_url, headers=self.headers, json=body) as response:
-                response_data = await self._handle_response(response)
-                return response_data
+        return await self._make_request(
+            "POST", 
+            api_url, 
+            headers=self.headers, 
+            json=body
+        )
             
     async def request_user(self, user_id, amount, note, privacy="private") -> None:
         """Requests a certain amount of money from the user"""
@@ -194,10 +201,12 @@ class VenmoIntegration(Integration):
             "note": note,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url=api_url, headers=self.headers, json=body) as response:
-                response_data = await self._handle_response(response)
-                return response_data
+        return await self._make_request(
+            "POST", 
+            api_url, 
+            headers=self.headers, 
+            json=body
+        )
 
 
 async def main():
