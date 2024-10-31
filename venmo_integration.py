@@ -76,7 +76,7 @@ fragment BalanceMetadata on BalanceFundingInstrumentMetadata {
 """
 
 class VenmoIntegration(Integration):
-    def __init__(self, authorization_token, user_agent: str = UserAgent().random, network_requester=None):
+    def __init__(self, authorization_token, user_agent: str = UserAgent().random):
         super().__init__("venmo")
         self.authorization_token = authorization_token
         self.url = "https://api.venmo.com/v1"
@@ -87,18 +87,20 @@ class VenmoIntegration(Integration):
         }
         self.identityJson = None
         self.transactionJson = None
-        self.network_requester = network_requester
+
 
     async def _make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Helper method to handle network requests using either custom requester or aiohttp"""
         if self.network_requester:
             response = await self.network_requester.request(method, url, process_response=self._handle_response, **kwargs)
+            return response
         else:
             async with aiohttp.ClientSession() as session:
                 async with session.request(method, url, **kwargs) as response:
                     return await self._handle_response(response)
 
-    async def initialize(self):
+    async def initialize(self, network_requester=None):
+        self.network_requester = network_requester
         self.identityJson = await self.get_identity()
         self.transactionJson = await self.get_personal_transaction()
 
@@ -119,7 +121,8 @@ class VenmoIntegration(Integration):
     async def get_identity(self) -> Dict[str, Any]:
         """Gets the identity of the current account"""
         api_url = self.url + "/account"
-        return await self._make_request("GET", api_url, headers=self.headers)
+        data = await self._make_request("GET", api_url, headers=self.headers)
+        return data
 
     async def get_balance(self):
         return self.safe_get(self.identityJson, ["data", "balance"], "get_balance")
