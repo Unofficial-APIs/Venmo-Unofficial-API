@@ -76,18 +76,12 @@ fragment BalanceMetadata on BalanceFundingInstrumentMetadata {
 """
 
 class VenmoIntegration(Integration):
-    def __init__(self, authorization_token, user_agent: str = UserAgent().random):
+    def __init__(self, user_agent: str = UserAgent().random):
         super().__init__("venmo")
-        self.authorization_token = authorization_token
         self.url = "https://api.venmo.com/v1"
-        self.headers = {
-            "User-Agent": user_agent,
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.authorization_token}",
-        }
         self.identityJson = None
         self.transactionJson = None
-
+        self.user_agent = user_agent
 
     async def _make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Helper method to handle network requests using either custom requester or aiohttp"""
@@ -99,10 +93,17 @@ class VenmoIntegration(Integration):
                 async with session.request(method, url, **kwargs) as response:
                     return await self._handle_response(response)
 
-    async def initialize(self, network_requester=None):
+    async def initialize(self, authorization_token, network_requester=None):
+        self.authorization_token = authorization_token
+        self.headers = {
+            "User-Agent": self.user_agent,
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.authorization_token}",
+        }
         self.network_requester = network_requester
         self.identityJson = await self.get_identity()
         self.transactionJson = await self.get_personal_transaction()
+
 
     async def _handle_response(self, response: aiohttp.ClientResponse) -> Dict[str, Any]:
         if response.status == 200:
@@ -110,13 +111,18 @@ class VenmoIntegration(Integration):
         
         response_json = await response.json()
         error_message = response_json.get("error", {}).get("message", "Unknown error")
+        error_code = response_json.get("error", {}).get("code", str(response.status))
         
         if response.status == 401:
-            raise IntegrationAuthError(f"Venmo: {error_message}", response.status)
+            raise IntegrationAuthError(f"Venmo: {error_message}", response.status, error_code)
         elif response.status == 400 and error_message == "Resource not found.":
-            raise IntegrationAPIError(self.integration_name, f"Resource not found.")
+            raise IntegrationAPIError(self.integration_name, f"Resource not found.", error_code)
         else:
-            raise IntegrationAPIError(self.integration_name, f"{error_message} (HTTP {response.status})")
+            raise IntegrationAPIError(
+                self.integration_name, 
+                f"{error_message} (HTTP {response.status})",
+                error_code
+            )
         
     async def get_identity(self) -> Dict[str, Any]:
         """Gets the identity of the current account"""
