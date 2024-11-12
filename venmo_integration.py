@@ -181,7 +181,7 @@ class VenmoIntegration(Integration):
         funding_source_id = await self.get_payment_methods(amount)
 
         if not funding_source_id:
-            raise ValueError("No funding sources available")
+            raise IntegrationAPIError(self.integration_name, f"No funding source available.", 500)
 
         body = {
             "funding_source_id": funding_source_id,
