@@ -82,7 +82,8 @@ class VenmoIntegration(Integration):
         self.identityJson = None
         self.transactionJson = None
         self.user_agent = user_agent
-
+        self.is_limited_account = None
+        
     async def _make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Helper method to handle network requests using either custom requester or aiohttp"""
         if self.network_requester:
@@ -128,6 +129,7 @@ class VenmoIntegration(Integration):
         """Gets the identity of the current account"""
         api_url = self.url + "/account"
         data = await self._make_request("GET", api_url, headers=self.headers)
+        self.is_limited_account = self.safe_get(data, ["data", "is_limited_account"], "get_identity")
         return data
 
     async def get_balance(self):
@@ -150,21 +152,38 @@ class VenmoIntegration(Integration):
             headers=self.headers, 
             json=payload
         )
-        primary_payment = None
-        backup_payment = None
-
-        for payment_method in self.safe_get(data, ["data", "profile", "wallet"], "get_payment_methods"):
-            if self.safe_get(payment_method, ["roles", "merchantPayments"], "get_payment_methods") == "primary":
-                primary_payment = payment_method
-                if primary_payment and self.safe_get(primary_payment, ["metadata", "availableBalance", "value"], "get_payment_methods") >= amount:
-                    return self.safe_get(primary_payment, ["id"], "get_payment_methods")
-            elif self.safe_get(payment_method, ["roles", "merchantPayments"], "get_payment_methods") == "backup":
-                backup_payment = payment_method
-                return self.safe_get(backup_payment, ["id"], "get_payment_methods")
-            else:
-                return self.safe_get(payment_method, ["id"], "get_payment_methods")
+        payment_methods = self.safe_get(data, ["data", "profile", "wallet"], "get_payment_methods")
         
+        primary_id = None
+        backup_id = None
+        double_backup_id = None
+        
+        for payment_method in payment_methods:
+            peer_payments_role = self.safe_get(payment_method, ["roles", "peerPayments"], "get_payment_methods")
+            
+            # Check primary payment method (if account is not limited)
+            if peer_payments_role == "primary" and not self.is_limited_account:
+                available_balance = self.safe_get(payment_method, ["metadata", "availableBalance", "value"], "get_payment_methods")
+                if available_balance >= amount:
+                    primary_id = self.safe_get(payment_method, ["id"], "get_payment_methods")
+            
+            # Store backup payment method
+            elif peer_payments_role == "backup":
+                backup_id = self.safe_get(payment_method, ["id"], "get_payment_methods")
+            
+            # Store other active payment methods
+            elif (peer_payments_role == "none" and 
+                  payment_method.get("metadata", {}).get("expirationStatus") == "active"):
+                double_backup_id = self.safe_get(payment_method, ["id"], "get_payment_methods")
 
+        # Return in priority order
+        if primary_id:
+            return primary_id
+        if backup_id:
+            return backup_id
+        if double_backup_id:
+            return double_backup_id
+        
         return None
 
     async def get_user(self, user_id):
@@ -178,7 +197,6 @@ class VenmoIntegration(Integration):
         user_data = await self.get_user(user_id)
         recipient_id = self.safe_get(user_data, ["data", "id"], "pay_user")
         funding_source_id = await self.get_payment_methods(amount)
-
         if not funding_source_id:
             raise IntegrationAPIError(self.integration_name, f"No funding source available.", 500)
 
