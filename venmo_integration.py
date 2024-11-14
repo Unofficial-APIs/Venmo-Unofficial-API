@@ -150,21 +150,20 @@ class VenmoIntegration(Integration):
             headers=self.headers, 
             json=payload
         )
-
         primary_payment = None
         backup_payment = None
 
         for payment_method in self.safe_get(data, ["data", "profile", "wallet"], "get_payment_methods"):
             if self.safe_get(payment_method, ["roles", "merchantPayments"], "get_payment_methods") == "primary":
                 primary_payment = payment_method
+                if primary_payment and self.safe_get(primary_payment, ["metadata", "availableBalance", "value"], "get_payment_methods") >= amount:
+                    return self.safe_get(primary_payment, ["id"], "get_payment_methods")
             elif self.safe_get(payment_method, ["roles", "merchantPayments"], "get_payment_methods") == "backup":
                 backup_payment = payment_method
-
-        if primary_payment and self.safe_get(primary_payment, ["metadata", "availableBalance", "value"], "get_payment_methods") >= amount:
-            return self.safe_get(primary_payment, ["id"], "get_payment_methods")
-
-        if backup_payment:
-            return self.safe_get(backup_payment, ["id"], "get_payment_methods")
+                return self.safe_get(backup_payment, ["id"], "get_payment_methods")
+            else:
+                return self.safe_get(payment_method, ["id"], "get_payment_methods")
+        
 
         return None
 
