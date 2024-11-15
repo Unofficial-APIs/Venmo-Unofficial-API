@@ -117,11 +117,12 @@ class VenmoIntegration(Integration):
         if response.status == 401:
             raise IntegrationAuthError(f"Venmo: {error_message}", response.status, error_code)
         elif response.status == 400 and error_message == "Resource not found.":
-            raise IntegrationAPIError(self.integration_name, f"Resource not found.", error_code)
+            raise IntegrationAPIError(self.integration_name, f"Resource not found.", response.status, error_code)
         else:
             raise IntegrationAPIError(
                 self.integration_name, 
                 f"{error_message} (HTTP {response.status})",
+                response.status,
                 error_code
             )
         
