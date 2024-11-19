@@ -4,12 +4,12 @@ This Python module provides a simple interface to interact with the Venmo API, a
 
 ## Features
 
-- Get account identity and balance
-- Retrieve personal transaction history
-- Get payment methods
-- Send payments to other users
+- Send money to other users
 - Request money from other users
-- User lookup
+- Get account identity and balance
+- Get personal transaction history
+- Get payment methods
+- Look up users
 
 ## Installation
 
