@@ -78,6 +78,25 @@ fragment BalanceMetadata on BalanceFundingInstrumentMetadata {
 }
 """
 
+get_handle_query = """
+query Identity {
+  profile {
+    ... on Profile {
+      availableIdentities {
+        ... on BusinessIdentity {
+          handle
+          type
+        }
+        ... on Identity {
+          handle
+          type
+        }
+      }
+    }
+  }
+}
+"""
+
 
 class VenmoIntegration(Integration):
     def __init__(self, user_agent: str = UserAgent().random):
@@ -263,6 +282,20 @@ class VenmoIntegration(Integration):
         return await self._make_request(
             "POST", api_url, headers=self.headers, json=body
         )
+
+    async def get_handle(self):
+        payload = {
+            "operationName": "Identity",
+            "variables": {},
+            "query": get_handle_query,
+        }
+        data = await self._make_request(
+            "POST", "https://api.venmo.com/graphql", headers=self.headers, json=payload
+        )
+        available_identities = self.safe_get(
+            data, ["data", "profile", "availableIdentities"], "get_handle"
+        )
+        return available_identities
 
 
 async def main():
