@@ -18,7 +18,7 @@ https://github.com/Unofficial-APIs/Integrations
 
 ## Info
 
-This unofficial API is built by [Integuru.ai](https://integuru.ai). We take custom requests for new platforms or additional features for existing platforms. We also offer hosting and authentication services. If you have requests or want to work with us, reach out at richard@taiki.online.
+This unofficial API is built by [Integuru.ai](https://integuru.ai). We take custom requests for new platforms or additional features for existing platforms. We also offer hosting and authentication services. If you have requests or want to work with us, reach out at richard@integuru.ai.
 
 Here's a [complete list](https://github.com/Integuru-AI/APIs-by-Integuru) of unofficial APIs built by Integuru.ai.
 
